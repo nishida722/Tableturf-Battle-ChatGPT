@@ -29,41 +29,6 @@ const placedBlocks = [];
 
 const blockRotations = [0, 0, 0]; // Initialize rotation states for each block
 
-function shuffle(array) {
-    for (let i = array.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [array[i], array[j]] = [array[j], array[i]];
-    }
-    return array;
-  }
-  
-  function createDecks() {
-    // Create a copy of the original blocks array
-    const blocksCopy = JSON.parse(JSON.stringify(originalBlocks));
-  
-    // Shuffle the copied array
-    const shuffledDeck = shuffle(blocksCopy);
-  
-    return shuffledDeck;
-  }
-  
-  const player1Deck = createDecks();
-  const player2Deck = createDecks();
-  
-  console.log("Player 1 Deck:", player1Deck);
-  console.log("Player 2 Deck:", player2Deck);
-
-// Create hands for each player
-const player1Hand = drawCards(player1Deck, 4);
-const player2Hand = drawCards(player2Deck, 4);
-
-function drawCards(deck, numberOfCards) {
-    // Take the specified number of cards from the top of the deck
-    const drawnCards = deck.splice(0, numberOfCards);
-  
-    return drawnCards;
-}
-
 function drawBlockOnCanvas(ctx, block, color, x, y) {
     ctx.fillStyle = color;
     ctx.strokeStyle = 'white';
@@ -86,167 +51,273 @@ function drawBlock(block, x, y, rotation = 0) {
     drawBlockOnCanvas(ctx, rotatedBlock, color, x * blockSize, y * blockSize);
 }
 
-function drawBlockPreview(blockId, canvas) {
-    const currentHand = currentPlayer === 1 ? player1Hand : player2Hand;
-    
-    if (currentHand[blockId] === undefined) {
-        return;
-    }
-    
-    const block = currentHand[blockId];
+function drawBlockPreview(blockId) {
+    const canvas = document.getElementById(`block${blockId + 1}Preview`);
     const ctx = canvas.getContext('2d');
-    canvas.width = blockSize * block[0].length;
-    canvas.height = blockSize * block.length;
+    canvas.width = blockSize * blocks[blockId][0].length;
+    canvas.height = blockSize * blocks[blockId].length;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    drawBlockOnCanvas(ctx, block, 'blue', 0, 0);
+    drawBlockOnCanvas(ctx, blocks[blockId], 'blue', 0, 0);
 }
 
 function drawBoard() {
     for (let x = 0; x < canvas.width / blockSize; x++) {
         for (let y = 0; y < canvas.height / blockSize; y++) {
-            ctx.strokeStyle = 'lightgray';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(x * blockSize, y * blockSize, blockSize, blockSize);
+            // Replaced drawBlock() with drawBlockOnCanvas()
+            drawBlockOnCanvas(ctx, [[1]], 'lightgray', x * blockSize, y * blockSize);
         }
     }
 }
 
-function drawPlacedBlocks() {
-    placedBlocks.forEach(block => {
-        drawBlock(block.block, block.x, block.y, block.rotation);
-    });
-}
-
-function applyRotation(block, rotation) {
-    let rotatedBlock = JSON.parse(JSON.stringify(block));
-
-    for (let r = 0; r < rotation; r++) {
-        rotatedBlock = rotatedBlock[0].map((_, i) => rotatedBlock.map(row => row[i])).reverse();
-    }
-
-    return rotatedBlock;
-}
-
-function isValidMove(block, x, y, rotation) {
+function drawSelectedBlock(block, x, y, color, rotation = 0) {
     const rotatedBlock = applyRotation(block, rotation);
 
     for (let i = 0; i < rotatedBlock.length; i++) {
         for (let j = 0; j < rotatedBlock[i].length; j++) {
             if (rotatedBlock[i][j]) {
-                if (x + j < 0 || x + j >= canvas.width / blockSize ||
-                    y + i < 0 || y + i >= canvas.height / blockSize) {
+                // Replaced drawBlock() with drawBlockOnCanvas()
+                drawBlockOnCanvas(ctx, [[1]], color, (x + j) * blockSize, (y + i) * blockSize);
+            }
+        }
+    }
+}
+
+
+function applyRotation(block, rotation) {
+    let rotatedBlock = JSON.parse(JSON.stringify(block));
+    for (let i = 0; i < rotation; i++) {
+        rotatedBlock = rotateBlock(rotatedBlock);
+    }
+    return rotatedBlock;
+}
+
+function redrawCanvas() {
+    drawBoard();
+    placedBlocks.forEach(block => {
+        const color = block.player === 1 ? 'blue' : 'yellow';
+        drawSelectedBlock(blocks[block.id], block.x, block.y, color, block.rotation);
+    });
+
+    updateStats();
+}
+
+function canPlaceBlock(block, x, y, rotation = 0) {
+    const rotatedBlock = applyRotation(block, rotation);
+
+    let touching = placedBlocks.length === 0; // Allow the first block to be placed anywhere
+    for (let i = 0; i < rotatedBlock.length; i++) {
+        for (let j = 0; j < rotatedBlock[i].length; j++) {
+            if (rotatedBlock[i][j]) {
+                const newX = x + j;
+                const newY = y + i;
+
+                if (newX < 0 || newX >= canvas.width / blockSize || newY < 0 || newY >= canvas.height / blockSize) {
                     return false;
                 }
 
                 for (const placedBlock of placedBlocks) {
-                    if (placedBlock.player === currentPlayer) {
-                        continue;
-                    }
+                    const placed = applyRotation(blocks[placedBlock.id], placedBlock.rotation);
+                    for (let pi = 0; pi < placed.length; pi++) {
+                        for (let pj = 0; pj < placed[pi].length; pj++) {
+                            if (!placed[pi][pj]) continue;
 
-                    const placedRotatedBlock = applyRotation(placedBlock.block, placedBlock.rotation);
+                            const px = placedBlock.x + pj;
+                            const py = placedBlock.y + pi;
 
-                    if (y + i - placedBlock.y >= 0 && y + i - placedBlock.y < placedRotatedBlock.length &&
-                        x + j - placedBlock.x >= 0 && x + j - placedBlock.x < placedRotatedBlock[0].length &&
-                        placedRotatedBlock[y + i - placedBlock.y][x + j - placedBlock.x]) {
-                        return false;
+                            if (px === newX && py === newY) {
+                                return false; // Block overlaps another block
+                            }
+
+                            if (placedBlock.player === currentPlayer) {
+                                if ((Math.abs(px - newX) <= 1 && py === newY) || (Math.abs(py - newY) <= 1 && px === newX) || (Math.abs(px - newX) === 1 && Math.abs(py - newY) === 1)) {
+                                    touching = true;
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    return true;
+    return touching;
 }
 
-function endTurn() {
-    if (selectedBlock === null) {
-        return;
+function hasValidMove(blockId, rotation) {
+    for (let x = 0; x < canvas.width / blockSize; x++) {
+      for (let y = 0; y < canvas.height / blockSize; y++) {
+        if (canPlaceBlock(blocks[blockId], x, y, rotation)) {
+          return true;
+        }
+      }
     }
+    return false;
+  }
+  
 
-    const currentHand = currentPlayer === 1 ? player1Hand : player2Hand;
-    const block = currentHand[selectedBlock];
-    const rotation = blockRotations[selectedBlock];
-
-    const x = Math.floor((canvas.width / 2 - blockSize * block[0].length / 2) / blockSize);
-    const y = Math.floor((canvas.height / 2 - blockSize * block.length / 2) / blockSize);
-
-    if (!isValidMove(block, x, y, rotation)) {
-        return;
+function rotateBlock(block) {
+    const newBlock = [];
+    for (let x = 0; x < block[0].length; x++) {
+        const newRow = [];
+        for (let y = block.length - 1; y >= 0; y--) {
+            newRow.push(block[y][x]);
+        }
+        newBlock.push(newRow);
     }
+    return newBlock;
+}
 
-    placedBlocks.push({
-        block: block,
-        x: x,
-        y: y,
-        rotation: rotation,
-        player: currentPlayer
+function rotateCurrentBlock(clockwise = true) {
+    if (selectedBlock === null) return;
+    blockRotations[selectedBlock] = (blockRotations[selectedBlock] + (clockwise ? 1 : -1) + 4) % 4;
+    redrawCanvas();
+}
+
+function getBlockStats() {
+    let player1Blocks = 0;
+    let player2Blocks = 0;
+    let player1Squares = 0;
+    let player2Squares = 0;
+  
+    placedBlocks.forEach(block => {
+      const rotatedBlock = applyRotation(blocks[block.id], block.rotation);
+  
+      const squareCount = rotatedBlock.reduce(
+        (accumulator, row) => accumulator + row.filter(cell => cell).length,
+        0
+      );
+  
+      if (block.player === 1) {
+        player1Blocks++;
+        player1Squares += squareCount;
+      } else {
+        player2Blocks++;
+        player2Squares += squareCount;
+      }
     });
+  
+    return {
+      player1Blocks,
+      player2Blocks,
+      player1Squares,
+      player2Squares,
+    };
+  }
 
-    currentHand.splice(selectedBlock, 1);
+  function updateStats() {
+    const stats = getBlockStats();
+    document.getElementById("player1Blocks").innerText = stats.player1Blocks;
+    document.getElementById("player2Blocks").innerText = stats.player2Blocks;
+    document.getElementById("player1Squares").innerText = stats.player1Squares;
+    document.getElementById("player2Squares").innerText = stats.player2Squares;
+  }
 
-    currentPlayer = currentPlayer === 1 ? 2 : 1;
-    remainingTurns--;
+  function switchPlayers() {
+    currentPlayer = 3 - currentPlayer;
+    remainingTurns -= 0.5;
+    document.getElementById('turnDisplay').innerText = `Turns Remaining: ${remainingTurns}`;
 
-    if (remainingTurns <= 0) {
-        // End game, calculate the winner
-    }
-
-    selectedBlock = null;
-}
-
-function drawCardsInHand() {
-    const cardSize = 20;
-    const margin = 5;
-    const offsetX = 10;
-    const offsetY = canvas.height - cardSize * 5 - margin * 5;
-    
-    for (let playerIndex = 0; playerIndex < players.length; playerIndex++) {
-        const player = players[playerIndex];
-        
-        for (let blockIndex = 0; blockIndex < player.blocks.length; blockIndex++) {
-            const block = player.blocks[blockIndex];
-            const xPos = offsetX + (cardSize + margin) * blockIndex;
-            const yPos = offsetY + (cardSize + margin) * playerIndex;
-            
-            drawBlock(block, xPos, yPos, 0, cardSize / 5, player.color);
+    if (remainingTurns === 0) {
+        const player1Squares = parseInt(document.getElementById('player1Squares').innerText);
+        const player2Squares = parseInt(document.getElementById('player2Squares').innerText);
+        if (player1Squares > player2Squares) {
+            alert('Player 1 wins!');
+        } else if (player1Squares < player2Squares) {
+            alert('Player 2 wins!');
+        } else {
+            alert('It\'s a tie!');
         }
     }
 }
 
-function drawBlockOutline() {
-    if (selectedPlayerIndex === null || selectedBlockIndex === null) {
-      return;
+drawBoard();
+
+// Place starting 1x1 blocks for both players (assuming the 1x1 block is the last item in the array)
+placedBlocks.push({ id: originalBlocks.length - 1, x: 0, y: 0, player: 1, rotation: 0 });
+placedBlocks.push({ id: originalBlocks.length - 1, x: canvas.width / blockSize - 1, y: canvas.height / blockSize - 1, player: 2, rotation: 0 });
+redrawCanvas();
+
+for (let i = 0; i < blocks.length; i++) {
+    drawBlockPreview(i);
+}
+
+canvas.addEventListener('click', (e) => {
+    if (selectedBlock === null) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor((e.clientX - rect.left) / blockSize);
+    const y = Math.floor((e.clientY - rect.top) / blockSize);
+
+    if (canPlaceBlock(blocks[selectedBlock], x, y, blockRotations[selectedBlock])) {
+        placedBlocks.push({ id: selectedBlock, x, y, player: currentPlayer, rotation: blockRotations[selectedBlock] });
+
+        redrawCanvas();
+
+        // Call switchPlayers() to switch turns and update the turn display
+        switchPlayers();
+
+        // Trigger the custom event instead of calling npcMove() directly
+        document.dispatchEvent(new Event('npcTurn'));
+      }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    if (selectedBlock === null) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor((e.clientX - rect.left) / blockSize);
+    const y = Math.floor((e.clientY - rect.top) / blockSize);
+
+    redrawCanvas();
+
+    const canPlace = canPlaceBlock(blocks[selectedBlock], x, y, blockRotations[selectedBlock]);
+    const previewColor = canPlace ? (currentPlayer === 1 ? 'rgba(0, 0, 255, 0.5)' : 'rgba(255, 255, 0, 0.5)') : 'rgba(255, 0, 0, 0.5)';
+    drawSelectedBlock(blocks[selectedBlock], x, y, previewColor, blockRotations[selectedBlock]);
+});
+
+canvas.addEventListener('mouseout', (e) => {
+    redrawCanvas();
+});
+
+canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+
+    if (e.deltaY < 0) {
+        rotateCurrentBlock(true); // Rotate clockwise
+    } else if (e.deltaY > 0) {
+        rotateCurrentBlock(false); // Rotate counterclockwise
     }
-  
-    const cardSize = 20;
-    const margin = 5;
-    const offsetX = 10;
-    const offsetY = canvas.height - cardSize * 5 - margin * 5;
-  
-    const xPos = offsetX + (cardSize + margin) * selectedBlockIndex;
-    const yPos = offsetY + (cardSize + margin) * selectedPlayerIndex;
-  
-    ctx.strokeStyle = 'black';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(xPos - 2, yPos - 2, cardSize + 4, cardSize + 4);
-  }
 
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawBoard();
-    drawBlockOutline();
-    drawCardsInHand();
-}
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor((e.clientX - rect.left) / blockSize);
+    const y = Math.floor((e.clientY - rect.top) / blockSize);
 
-function main() {
-    draw();
-    requestAnimationFrame(main);
-}
+    redrawCanvas();
 
-canvas.addEventListener('click', endTurn);
+    const canPlace = canPlaceBlock(blocks[selectedBlock], x, y, blockRotations[selectedBlock]);
+    const previewColor = canPlace ? (currentPlayer === 1 ? 'rgba(0, 0, 255, 0.5)' : 'rgba(255, 255, 0, 0.5)') : 'rgba(255, 0, 0, 0.5)';
+    drawSelectedBlock(blocks[selectedBlock], x, y, previewColor, blockRotations[selectedBlock]);
+});
 
-main();
+// Add the event listener for the custom event
+document.addEventListener('npcTurn', () => {
+    npcMove();
+  });
 
+document.getElementById('block1').addEventListener('click', () => {
+    selectedBlock = 0;
+});
 
+document.getElementById('block2').addEventListener('click', () => {
+    selectedBlock = 1;
+});
+
+document.getElementById('block3').addEventListener('click', () => {
+    selectedBlock = 2;
+});
+
+document.getElementById('block4').addEventListener('click', () => {
+    selectedBlock = 3;
+});
